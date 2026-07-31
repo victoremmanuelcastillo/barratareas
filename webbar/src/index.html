@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>webbar</title>
+    <link rel="stylesheet" href="./dist.css" />
+  </head>
+  <body class="m-0 h-screen w-screen overflow-hidden bg-transparent">
+    <div
+      id="bar"
+      class="flex h-full w-full items-center justify-between border-t border-white/10 bg-neutral-950/30 px-5 font-sans text-base text-neutral-200 opacity-0 transition-opacity duration-150"
+    >
+      <div id="windows" class="flex flex-1 items-center justify-start gap-2 overflow-hidden pl-2"></div>
+
+      <div class="flex w-72 shrink-0 items-center justify-end gap-4">
+        <div id="tray" class="flex items-center gap-2"></div>
+        <button
+          id="clipboard-btn"
+          class="flex h-8 w-8 items-center justify-center rounded text-lg text-neutral-300 hover:bg-white/10 hover:text-neutral-100"
+          title="Portapapeles"
+        >📋</button>
+        <div id="brightness" class="flex items-center gap-1.5 text-neutral-300">
+          <span class="text-lg">☀️</span>
+          <span id="brightness-percentage">--%</span>
+        </div>
+        <div id="volume" class="flex items-center gap-1.5 text-neutral-300">
+          <span id="volume-icon" class="text-lg">🔊</span>
+          <span id="volume-percentage">--%</span>
+        </div>
+        <div id="battery" class="flex items-center gap-1.5 text-neutral-300">
+          <span id="battery-icon" class="text-lg">🔋</span>
+          <span id="battery-percentage">--%</span>
+        </div>
+        <span class="text-neutral-600">|</span>
+        <div class="flex flex-col items-end leading-tight whitespace-nowrap">
+          <span id="clock-time" class="tabular-nums text-sm text-neutral-100">--:--:--</span>
+          <span id="clock-date" class="tabular-nums text-[11px] text-neutral-400">--/--/--</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const tauri = window.__TAURI__;
+      const invoke = tauri ? tauri.core.invoke : async () => { throw new Error("no tauri runtime"); };
+      const listen = tauri ? tauri.event.listen : () => {};
+
+      if (!tauri) {
+        document.getElementById("bar").classList.remove("opacity-0");
+      }
+
+      const clockTimeEl = document.getElementById("clock-time");
+      const clockDateEl = document.getElementById("clock-date");
+      function formatTime(d) {
+        const hh = String(d.getHours()).padStart(2, "0");
+        const mm = String(d.getMinutes()).padStart(2, "0");
+        const ss = String(d.getSeconds()).padStart(2, "0");
+        return `${hh}:${mm}:${ss}`;
+      }
+      function formatDate(d) {
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yy = String(d.getFullYear()).slice(-2);
+        return `${dd}/${mm}/${yy}`;
+      }
+      setInterval(() => {
+        const now = new Date();
+        clockTimeEl.textContent = formatTime(now);
+        clockDateEl.textContent = formatDate(now);
+      }, 1000);
+
+      const batteryPercentageEl = document.getElementById("battery-percentage");
+      const batteryIconEl = document.getElementById("battery-icon");
+
+      function iconFor(percentage, state) {
+        if (state === "charging") return "⚡";
+        if (percentage >= 90) return "🔋";
+        if (percentage >= 40) return "🔋";
+        if (percentage >= 15) return "🪫";
+        return "🪫";
+      }
+
+      async function updateBattery() {
+        try {
+          const info = await invoke("get_battery");
+          batteryPercentageEl.textContent = `${info.percentage}%`;
+          batteryIconEl.textContent = iconFor(info.percentage, info.state);
+        } catch (e) {
+          batteryPercentageEl.textContent = "n/d";
+        }
+      }
+
+      updateBattery();
+      setInterval(updateBattery, 15000);
+
+      const volumePercentageEl = document.getElementById("volume-percentage");
+      const volumeIconEl = document.getElementById("volume-icon");
+
+      async function updateVolume() {
+        try {
+          const info = await invoke("get_volume");
+          volumePercentageEl.textContent = `${info.percentage}%`;
+          volumeIconEl.textContent = info.muted ? "🔇" : "🔊";
+        } catch (e) {
+          volumePercentageEl.textContent = "n/d";
+        }
+      }
+
+      updateVolume();
+      setInterval(updateVolume, 3000);
+
+      const brightnessPercentageEl = document.getElementById("brightness-percentage");
+
+      async function updateBrightness() {
+        try {
+          const info = await invoke("get_brightness");
+          brightnessPercentageEl.textContent = `${info.percentage}%`;
+        } catch (e) {
+          brightnessPercentageEl.textContent = "n/d";
+        }
+      }
+
+      updateBrightness();
+      setInterval(updateBrightness, 5000);
+
+      document.getElementById("clipboard-btn").addEventListener("click", () => {
+        invoke("open_clipboard_menu").catch((e) => console.error("open_clipboard_menu fallo", e));
+      });
+
+      const windowsEl = document.getElementById("windows");
+
+      function shortCaption(caption) {
+        return caption.length > 28 ? caption.slice(0, 27) + "…" : caption;
+      }
+
+      const windowIconCache = new Map();
+
+      async function iconFor_window(resourceClass) {
+        if (!resourceClass) return null;
+        if (windowIconCache.has(resourceClass)) return windowIconCache.get(resourceClass);
+        try {
+          const dataUri = await invoke("get_icon", { iconName: resourceClass.toLowerCase() });
+          windowIconCache.set(resourceClass, dataUri);
+          return dataUri;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      let windowRenderGen = 0;
+
+      async function renderWindows(list) {
+        const gen = ++windowRenderGen;
+        const withIcons = await Promise.all(
+          list.map(async (w) => ({ w, icon: await iconFor_window(w.resourceClass) }))
+        );
+        if (gen !== windowRenderGen) return;
+
+        windowsEl.innerHTML = "";
+        for (const { w, icon } of withIcons) {
+          const btn = document.createElement("button");
+          btn.className =
+            "flex max-w-[220px] items-center gap-2 truncate rounded px-3 py-1.5 text-sm transition-colors " +
+            (w.active
+              ? "bg-white/15 text-neutral-50"
+              : "text-neutral-400 hover:bg-white/5 hover:text-neutral-200");
+          btn.title = w.caption;
+          btn.addEventListener("click", () => {
+            invoke("activate_window", {
+              resourceClass: w.resourceClass,
+              caption: w.caption,
+            });
+          });
+
+          if (icon) {
+            const img = document.createElement("img");
+            img.src = icon;
+            img.className = "h-5 w-5 shrink-0";
+            btn.appendChild(img);
+          }
+
+          const label = document.createElement("span");
+          label.className = "truncate";
+          label.textContent = shortCaption(w.caption || w.resourceClass || "?");
+          btn.appendChild(label);
+          windowsEl.appendChild(btn);
+        }
+      }
+
+      listen("windows-updated", (event) => {
+        renderWindows(event.payload);
+      });
+
+      const trayEl = document.getElementById("tray");
+      const iconCache = new Map();
+
+      async function iconFor_tray(iconName) {
+        if (!iconName) return null;
+        if (iconCache.has(iconName)) return iconCache.get(iconName);
+        try {
+          const dataUri = await invoke("get_icon", { iconName });
+          iconCache.set(iconName, dataUri);
+          return dataUri;
+        } catch (e) {
+          console.error("get_icon fallo", iconName, e);
+          return null;
+        }
+      }
+
+      function renderTray(list) {
+        trayEl.innerHTML = "";
+        for (const t of list) {
+          const btn = document.createElement("button");
+          btn.className =
+            "flex h-8 w-8 items-center justify-center rounded bg-white/10 text-sm text-neutral-100 hover:bg-white/20";
+          btn.title = t.title;
+          btn.textContent = (t.title || "?").slice(0, 1).toUpperCase();
+          btn.addEventListener("click", () => {
+            invoke("activate_tray_item", { address: t.address }).catch((e) =>
+              console.error("activate_tray_item fallo", e)
+            );
+          });
+          trayEl.appendChild(btn);
+
+          iconFor_tray(t.iconName).then((dataUri) => {
+            if (!dataUri) return;
+            btn.textContent = "";
+            const img = document.createElement("img");
+            img.src = dataUri;
+            img.className = "h-5 w-5";
+            btn.appendChild(img);
+          });
+        }
+      }
+
+      listen("tray-updated", (event) => {
+        renderTray(event.payload);
+      });
+
+      async function pullTrayItems(retriesLeft) {
+        try {
+          const list = await invoke("get_tray_items");
+          renderTray(list);
+        } catch (e) {
+          if (retriesLeft > 0) {
+            setTimeout(() => pullTrayItems(retriesLeft - 1), 400);
+          } else {
+            console.error("get_tray_items fallo, me rindo", e);
+          }
+        }
+      }
+
+      pullTrayItems(10);
+
+      const barEl = document.getElementById("bar");
+      listen("hover", (event) => {
+        barEl.classList.toggle("opacity-0", !event.payload);
+      });
+    </script>
+  </body>
+</html>
