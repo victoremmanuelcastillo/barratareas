@@ -126,6 +126,12 @@ fn get_brightness() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+fn open_terminal() -> Result<(), String> {
+  std::process::Command::new("konsole").spawn().map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
 fn open_clipboard_menu() -> Result<(), String> {
   std::process::Command::new("qdbus6")
     .args(["org.kde.klipper", "/klipper", "org.kde.klipper.klipper.showKlipperPopupMenu"])
@@ -301,6 +307,7 @@ pub fn run() {
       get_volume,
       get_brightness,
       open_clipboard_menu,
+      open_terminal,
       activate_window,
       activate_tray_item,
       get_icon,

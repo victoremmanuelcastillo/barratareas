@@ -15,6 +15,11 @@
       <div class="flex w-72 shrink-0 items-center justify-end gap-4">
         <div id="tray" class="flex items-center gap-2"></div>
         <button
+          id="terminal-btn"
+          class="flex h-8 w-8 items-center justify-center rounded text-lg text-neutral-300 hover:bg-white/10 hover:text-neutral-100"
+          title="Terminal"
+        >🖥️</button>
+        <button
           id="clipboard-btn"
           class="flex h-8 w-8 items-center justify-center rounded text-lg text-neutral-300 hover:bg-white/10 hover:text-neutral-100"
           title="Portapapeles"
@@ -124,6 +129,10 @@
 
       document.getElementById("clipboard-btn").addEventListener("click", () => {
         invoke("open_clipboard_menu").catch((e) => console.error("open_clipboard_menu fallo", e));
+      });
+
+      document.getElementById("terminal-btn").addEventListener("click", () => {
+        invoke("open_terminal").catch((e) => console.error("open_terminal fallo", e));
       });
 
       const windowsEl = document.getElementById("windows");
