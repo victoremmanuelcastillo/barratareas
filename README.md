@@ -14,7 +14,7 @@ Reemplazo completo de la barra de tareas de KDE Plasma en Wayland: en vez de the
 - Brillo de pantalla (%, vía D-Bus de PowerDevil).
 - Botón de portapapeles (abre el historial nativo de Klipper).
 - Botón de terminal (abre Konsole).
-- Bandeja de sistema (protocolo StatusNotifierItem/DBusMenu — íconos como Arch-Update, etc).
+- Bandeja de sistema (protocolo StatusNotifierItem/DBusMenu — íconos como Arch-Update, etc). Click izquierdo activa, click derecho abre su menú contextual nativo.
 
 ## Por qué existe
 
@@ -94,6 +94,5 @@ rm -rf ~/.local/share/cl.victorecn.webbar   # perfil de WebKit (caché, storage)
 
 ## Estado / pendiente
 
-- Sin bundle de instalación empaquetado (`cargo tauri build` con instalador/paquete del sistema) — por ahora se corre el binario suelto.
-- Sin menú contextual (click derecho) en los íconos de bandeja (DBusMenu completo).
+- `cargo tauri build` genera `.deb` y `.rpm` en `src-tauri/target/release/bundle/` (útil para distribuir a otras distros). El AppImage falla por una herramienta externa (`linuxdeploy`) — no importa para uso propio, en Arch/CachyOS ninguno de los tres formatos aplica igual, se usa el binario suelto (ver "Instalar / compilar" arriba).
 - Probado en una sola máquina (CachyOS, Plasma 6.7.3, GPU Intel integrada) — otras distros/compositores no están verificados.
