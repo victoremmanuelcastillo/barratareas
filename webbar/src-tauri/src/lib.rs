@@ -199,6 +199,46 @@ async fn activate_tray_item(
 }
 
 #[cfg(target_os = "linux")]
+fn pixbuf_to_data_uri(pixbuf: gtk::gdk_pixbuf::Pixbuf) -> Option<String> {
+  use base64::Engine;
+  let bytes = pixbuf.save_to_bufferv("png", &[]).ok()?;
+  Some(format!(
+    "data:image/png;base64,{}",
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+  ))
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_icon(theme: &gtk::IconTheme, name: &str, size: i32) -> Option<gtk::gdk_pixbuf::Pixbuf> {
+  use gtk::prelude::IconThemeExt;
+  if name.starts_with('/') {
+    return gtk::gdk_pixbuf::Pixbuf::from_file_at_size(name, size, size).ok();
+  }
+  theme
+    .lookup_icon(name, size, gtk::IconLookupFlags::empty())?
+    .load_icon()
+    .ok()
+}
+
+// Algunos .desktop (ej. docker-desktop.desktop) declaran Icon= como ruta
+// absoluta a un PNG en vez de un nombre de tema — el lookup por nombre falla
+// para esos, asi que buscamos el .desktop que matchee resourceClass y
+// reintentamos con su valor real de Icon=.
+#[cfg(target_os = "linux")]
+fn find_desktop_icon(resource_class: &str) -> Option<String> {
+  let home = std::env::var("HOME").ok()?;
+  for dir in ["/usr/share/applications".to_string(), format!("{home}/.local/share/applications")] {
+    let path = std::path::Path::new(&dir).join(format!("{resource_class}.desktop"));
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+      if let Some(v) = contents.lines().find_map(|l| l.strip_prefix("Icon=")) {
+        return Some(v.trim().to_string());
+      }
+    }
+  }
+  None
+}
+
+#[cfg(target_os = "linux")]
 #[tauri::command]
 async fn get_icon(app: tauri::AppHandle, icon_name: String) -> Result<Option<String>, String> {
   let (tx, rx) = tokio::sync::oneshot::channel();
@@ -206,17 +246,15 @@ async fn get_icon(app: tauri::AppHandle, icon_name: String) -> Result<Option<Str
   app
     .run_on_main_thread(move || {
       let result = (|| -> Option<String> {
-        use base64::Engine;
-        use gtk::prelude::IconThemeExt;
-
         let theme = gtk::IconTheme::default()?;
-        let icon_info = theme.lookup_icon(&icon_name, 32, gtk::IconLookupFlags::empty())?;
-        let pixbuf = icon_info.load_icon().ok()?;
-        let bytes = pixbuf.save_to_bufferv("png", &[]).ok()?;
-        Some(format!(
-          "data:image/png;base64,{}",
-          base64::engine::general_purpose::STANDARD.encode(bytes)
-        ))
+
+        if let Some(pixbuf) = resolve_icon(&theme, &icon_name, 32) {
+          return pixbuf_to_data_uri(pixbuf);
+        }
+
+        let fallback_name = find_desktop_icon(&icon_name)?;
+        let pixbuf = resolve_icon(&theme, &fallback_name, 32)?;
+        pixbuf_to_data_uri(pixbuf)
       })();
       let _ = tx.send(result);
     })
