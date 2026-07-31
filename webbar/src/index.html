@@ -228,6 +228,12 @@
               console.error("activate_tray_item fallo", e)
             );
           });
+          btn.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            invoke("show_tray_menu", { address: t.address }).catch((e) =>
+              console.error("show_tray_menu fallo", e)
+            );
+          });
           trayEl.appendChild(btn);
 
           iconFor_tray(t.iconName).then((dataUri) => {

@@ -166,6 +166,78 @@ fn get_tray_items(
   tray_snapshot_list(&client)
 }
 
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn show_tray_menu(
+  app: tauri::AppHandle,
+  client: tauri::State<'_, std::sync::Arc<system_tray::client::Client>>,
+  address: String,
+) -> Result<(), String> {
+  use gtk::prelude::{GtkMenuExt, GtkMenuItemExt, MenuShellExt, WidgetExt};
+
+  let (menu_path, submenus) = {
+    let items = client.items();
+    let items = items.lock().expect("tray items lock envenenado");
+    let Some((item, Some(tray_menu))) = items.get(&address) else {
+      return Ok(());
+    };
+    let Some(menu_path) = item.menu.clone() else {
+      return Ok(());
+    };
+    (menu_path, tray_menu.submenus.clone())
+  };
+
+  let client_inner = std::sync::Arc::clone(&client);
+
+  app
+    .run_on_main_thread(move || {
+      let menu = gtk::Menu::new();
+      for entry in &submenus {
+        if !entry.visible {
+          continue;
+        }
+        match entry.menu_type {
+          system_tray::menu::MenuType::Separator => {
+            menu.append(&gtk::SeparatorMenuItem::new());
+          }
+          system_tray::menu::MenuType::Standard => {
+            let gtk_item = gtk::MenuItem::with_label(&entry.label.clone().unwrap_or_default());
+            gtk_item.set_sensitive(entry.enabled);
+
+            let address = address.clone();
+            let menu_path = menu_path.clone();
+            let submenu_id = entry.id;
+            let client_inner = client_inner.clone();
+            gtk_item.connect_activate(move |_| {
+              let address = address.clone();
+              let menu_path = menu_path.clone();
+              let client_inner = client_inner.clone();
+              tauri::async_runtime::spawn(async move {
+                let _ = client_inner
+                  .activate(system_tray::client::ActivateRequest::MenuItem {
+                    address,
+                    menu_path,
+                    submenu_id,
+                  })
+                  .await;
+              });
+            });
+            menu.append(&gtk_item);
+          }
+        }
+      }
+      menu.show_all();
+      menu.popup_at_pointer(None);
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+fn show_tray_menu(_address: String) -> Result<(), String> {
+  Ok(())
+}
+
 fn spawn_tray_watcher(app_handle: tauri::AppHandle) {
   tauri::async_runtime::spawn(async move {
     let client = match system_tray::client::Client::new().await {
@@ -348,6 +420,7 @@ pub fn run() {
       open_terminal,
       activate_window,
       activate_tray_item,
+      show_tray_menu,
       get_icon,
       get_tray_items
     ])
